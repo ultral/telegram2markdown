@@ -45,7 +45,10 @@ def format_message_text(message_text, entities):
         elif isinstance(entity, MessageEntityItalic):
             markdown += part_without_formatting + f"*{part_formatted}*"
         elif isinstance(entity, MessageEntityTextUrl):
-            markdown += part_without_formatting + f"[{part_formatted}]({entity.url})"
+            url = entity.url
+            if url.startswith(f"https://t.me/{channel_username}/"):
+                url = url.split("/")[-1] + ".md"
+            markdown += part_without_formatting + f"[{part_formatted}]({url})"
         elif isinstance(entity, MessageEntityMention):
             markdown += part_without_formatting + f"[{part_formatted}](https://t.me/{text[entity.offset:entity.offset + entity.length]})"
         elif isinstance(entity, MessageEntityCode):
@@ -71,63 +74,76 @@ async def main():
     channel = await client.get_entity(channel_username)
     logging.info(f"Retrieved channel: {channel}")
 
-    # Get message history
-    history = await client(GetHistoryRequest(
-        peer=channel,
-        offset_date=None,
-        offset_id=0,
-        add_offset=0,
-        limit=1,
-        max_id=0,
-        min_id=0,
-        hash=0
-    ))
-    logging.debug(f"Retrieved message history: {history}")
+    offset_id = 0
+    limit = 100
 
-    # Create a folder to store data
-    if not os.path.exists('channel_export'):
-        os.makedirs('channel_export')
-        logging.debug("Created directory 'channel_export'")
+    while True:
+        # Get message history in batches of 100
+        history = await client(GetHistoryRequest(
+            peer=channel,
+            offset_date=None,
+            offset_id=offset_id,
+            add_offset=0,
+            limit=limit,
+            max_id=0,
+            min_id=0,
+            hash=0
+        ))
+        logging.debug(f"Retrieved message history: {history}")
 
-    # Save each message in a separate Markdown file
-    for message in history.messages:
-        logging.debug(f"Processing message: {message.id}")
-        if message.message or message.media:
-            # Save message text and links
-            with open(f'channel_export/message_{message.id}.md', 'w', encoding='utf-8') as file:
-                # Format the main message text
-                formatted_text = format_message_text(message.message, message.entities)
+        if not history.messages:
+            break
 
-                # Format media captions, if present
-                if message.media and hasattr(message.media, 'caption') and message.media.caption:
-                    caption_text = format_message_text(message.media.caption, message.media.entities)
-                    formatted_text += f"\n\n*Media Caption:* {caption_text}"
+        # Log the current batch range
+        logging.info(f"Processing batch: {offset_id} to {offset_id + limit}")
 
-                # Handle media-specific attributes (like alt text)
-                if message.media and hasattr(message.media, 'document') and message.media.document.attributes:
-                    for attribute in message.media.document.attributes:
-                        if hasattr(attribute, 'alt') and attribute.alt:
-                            formatted_text += f"\n\n*Alt Text:* {attribute.alt}"
+        # Create a folder to store data
+        if not os.path.exists('channel_export'):
+            os.makedirs('channel_export')
+            logging.debug("Created directory 'channel_export'")
 
-                if not formatted_text.strip():
-                    formatted_text = "[No text content]"
+        # Save each message in a separate Markdown file
+        for message in history.messages:
+            logging.debug(f"Processing message: {message.id}")
+            if message.message or message.media:
+                # Save message text and links
+                with open(f'channel_export/message_{message.id}.md', 'w', encoding='utf-8') as file:
+                    # Format the main message text
+                    formatted_text = format_message_text(message.message, message.entities)
 
-                # Write the formatted text
-                file.write(formatted_text + '\n')
+                    # Format media captions, if present
+                    if message.media and hasattr(message.media, 'caption') and message.media.caption:
+                        caption_text = format_message_text(message.media.caption, message.media.entities)
+                        formatted_text += f"\n\n*Media Caption:* {caption_text}"
 
-                # Add buttons and links
-                if message.reply_markup and message.reply_markup.rows:
-                    for row in message.reply_markup.rows:
-                        for button in row.buttons:
-                            file.write(f"[{button.text}]({button.url})\n")
+                    # Handle media-specific attributes (like alt text)
+                    if message.media and hasattr(message.media, 'document') and message.media.document.attributes:
+                        for attribute in message.media.document.attributes:
+                            if hasattr(attribute, 'alt') and attribute.alt:
+                                formatted_text += f"\n\n*Alt Text:* {attribute.alt}"
 
-                # Add original post link and date
-                file.write("\n---\n")
-                post_link = f"https://t.me/{channel_username}/{message.id}"
-                post_date = message.date.strftime('%Y-%m-%d')
-                file.write(f"[Original Post]({post_link})\n")
-                file.write(f"Date: {post_date}\n")
-                logging.debug(f"Saved message {message.id} to file")
+                    if not formatted_text.strip():
+                        formatted_text = "[No text content]"
+
+                    # Write the formatted text
+                    file.write(formatted_text + '\n')
+
+                    # Add buttons and links
+                    if message.reply_markup and message.reply_markup.rows:
+                        for row in message.reply_markup.rows:
+                            for button in row.buttons:
+                                file.write(f"[{button.text}]({button.url})\n")
+
+                    # Add original post link and date
+                    file.write("\n---\n")
+                    post_link = f"https://t.me/{channel_username}/{message.id}"
+                    post_date = message.date.strftime('%Y-%m-%d')
+                    file.write(f"[Original Post]({post_link})\n")
+                    file.write(f"Date: {post_date}\n")
+                    logging.debug(f"Saved message {message.id} to file")
+
+        # Update the offset_id for the next batch
+        offset_id = history.messages[-1].id
 
 
 with client:
