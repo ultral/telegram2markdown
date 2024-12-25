@@ -1,5 +1,6 @@
 #! /usr/bin/env python3
 
+import logging
 from telethon.sync import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.types import (
@@ -9,6 +10,9 @@ from telethon.tl.types import (
 import os
 from datetime import datetime
 import unicodedata
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 api_id = os.getenv('TELEGRAM_API_ID')
 api_hash = os.getenv('TELEGRAM_API_HASH')
@@ -20,6 +24,7 @@ client = TelegramClient('session_name', api_id, api_hash)
 
 def format_message_text(message_text, entities):
     """Formats a text with entities to Markdown."""
+    logging.debug(f"Formatting message text: {message_text} with entities: {entities}")
     if not message_text:
         return "[No text content]"
 
@@ -31,8 +36,8 @@ def format_message_text(message_text, entities):
 
     for entity in entities:
         # Correctly handle multi-byte characters (emoji and complex symbols)
-        part_without_formatting = text[offset:entity.offset]
-        part_formatted = text[entity.offset:entity.offset + entity.length]
+        part_without_formatting = text.encode('utf-16-le')[2*offset:2*entity.offset].decode('utf-16-le')
+        part_formatted = text.encode('utf-16-le')[2*entity.offset:2*(entity.offset + entity.length)].decode('utf-16-le')
 
         # Handle different types of entities
         if isinstance(entity, MessageEntityBold):
@@ -55,13 +60,16 @@ def format_message_text(message_text, entities):
 
     # Add the remaining text after the last entity
     markdown += text[offset:]
+    logging.debug(f"Formatted markdown: {markdown}")
     return markdown
 
 
 async def main():
     # Start the client
+    logging.info("Starting the client")
     await client.start()
     channel = await client.get_entity(channel_username)
+    logging.info(f"Retrieved channel: {channel}")
 
     # Get message history
     history = await client(GetHistoryRequest(
@@ -74,13 +82,16 @@ async def main():
         min_id=0,
         hash=0
     ))
+    logging.debug(f"Retrieved message history: {history}")
 
     # Create a folder to store data
     if not os.path.exists('channel_export'):
         os.makedirs('channel_export')
+        logging.debug("Created directory 'channel_export'")
 
     # Save each message in a separate Markdown file
     for message in history.messages:
+        logging.debug(f"Processing message: {message.id}")
         if message.message or message.media:
             # Save message text and links
             with open(f'channel_export/message_{message.id}.md', 'w', encoding='utf-8') as file:
@@ -116,6 +127,7 @@ async def main():
                 post_date = message.date.strftime('%Y-%m-%d')
                 file.write(f"[Original Post]({post_link})\n")
                 file.write(f"Date: {post_date}\n")
+                logging.debug(f"Saved message {message.id} to file")
 
 
 with client:
