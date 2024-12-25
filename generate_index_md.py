@@ -46,7 +46,7 @@ with TelegramClient('session_name', api_id, api_hash) as client:
 
                     # Write to markdown file if text is not empty
                     if text:
-                        file.write(f"- [{text.split('\n')[0][:200]}]({message.id}.md)\n")
+                        file.write(f"- [{text.split('\n')[0][:200].rstrip()}](channel_export/message_{message.id}.md)\n")
 
             total_messages += len(messages)
             offset_id = messages[-1].id
